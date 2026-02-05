@@ -1,22 +1,59 @@
-name: mac
-on: 
-  workflow_dispatch:
-defaults:
-  run:
-    shell: bash
+name: Mac in Docker (Linux Hack)
+
+on: workflow_dispatch
 
 jobs:
-  build:
-    runs-on: macos-13
+  hackintosh:
+    runs-on: ubuntu-latest # Беремо Linux (він безкоштовний і не баниться)
+    
     steps:
-    - uses: actions/checkout@v2
-    - name: Setting the environment up.
-      env:
-        NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
-        VNC_USER_PASSWORD: ${{ secrets.VNC_USER_PASSWORD }}
-        VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
-      run: source configure.sh "$VNC_USER_PASSWORD" "$VNC_PASSWORD" "$NGROK_AUTH_TOKEN"
-    - name: ngrok is now listening to VNC connections on...
-      run: curl --silent http://127.0.0.1:4040/api/tunnels | jq '.tunnels[0].public_url'
-    - name: Setup tmate session
-      uses: mxschmitt/action-tmate@v2
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Enable KVM (Acceleration)
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Start Docker-OSX (Pull & Run)
+        # Це займе час! Качається образ ~20GB
+        run: |
+          docker run -d \
+            --device /dev/kvm \
+            -p 5999:5999 \
+            -e "DISPLAY=${DISPLAY:-:0.0}" \
+            -e "GENERATED_DEFAULTS=true" \
+            -e "Master=true" \
+            --name mac_os \
+            sickcodes/docker-osx:auto
+
+      - name: Setup Ngrok
+        env:
+          NGROK_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+        run: |
+          curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
+          echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
+          sudo apt update && sudo apt install ngrok
+          ngrok config add-authtoken $NGROK_TOKEN
+          # Запускаємо тунель на порт 5999 (VNC з Докера)
+          ngrok tcp 5999 --log=stdout > ngrok.log &
+
+      - name: Wait for macOS to Boot
+        run: |
+          echo "🚀 macOS is booting inside Docker... This takes about 10-15 minutes!"
+          echo "Don't panic if VNC connects to a black screen initially."
+          sleep 10
+
+      - name: Show Ngrok URL (CONNECT HERE)
+        run: |
+          echo "=========================================================="
+          echo "WAIT 2 MINUTES, THEN CONNECT TO THE URL BELOW:"
+          curl --silent http://127.0.0.1:4040/api/tunnels | jq '.tunnels[0].public_url'
+          echo "=========================================================="
+          echo "Password is usually empty, or try 'admin'"
+          
+      - name: Keep Alive (Let it run)
+        run: |
+          # Тримаємо сесію активною 2 години
+          sleep 7200
