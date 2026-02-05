@@ -16,15 +16,13 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Start Docker-OSX (Pull & Run)
-        # Це займе час! Качається образ ~20GB
+      - name: Start Docker-OSX (Safe Mode)
         run: |
           docker run -d \
-            --device /dev/kvm \
             -p 5999:5999 \
             -e "DISPLAY=${DISPLAY:-:0.0}" \
             -e "GENERATED_DEFAULTS=true" \
-            -e "Master=true" \
+            -e "MASTER_PLIST_URL=https://raw.githubusercontent.com/sickcodes/osx-serial-generator/master/config-custom.plist" \
             --name mac_os \
             sickcodes/docker-osx:auto
 
